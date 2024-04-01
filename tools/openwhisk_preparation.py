@@ -18,7 +18,7 @@ def run_check_process(cmd: str, **kwargs) -> None:
         cmd.split(),
         check=True,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        # stderr=subprocess.DEVNULL,
         env=env,
     )
 
@@ -35,12 +35,13 @@ def install_helm() -> None:
             stderr=subprocess.DEVNULL,
         )
         subprocess.run(
-            "sh -".split(),
+            "bash".split(),
             input=helm_package.stdout,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=True,
         )
+        
         logging.info("Helm has been installed")
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         logging.error("Cannot install helm, reason: {}".format(e))
@@ -60,12 +61,13 @@ def check_helm_installation() -> None:
 # kubectl utils
 
 
-def install_kubectl(kubectl_version: str = "v1.18.0") -> None:
+def install_kubectl(kubectl_version: str = "v1.29.3") -> None:
     try:
         logging.info("Installing kubectl...")
         home_path = os.environ["HOME"]
         kubectl_path = "{}/.local/bin/kubectl".format(home_path)
         run_check_process(
+            
             "curl -L -o {} "
             "https://storage.googleapis.com/kubernetes-release/release/{}/bin"
             "/linux/amd64/kubectl".format(kubectl_path, kubectl_version)
@@ -90,13 +92,13 @@ def check_kubectl_installation() -> None:
 # kind utils
 
 
-def install_kind(kind_version: str = "v0.8.1") -> None:
+def install_kind(kind_version: str = "v0.22.0") -> None:
     try:
         logging.info("Installing kind...")
         env = os.environ.copy()
         env["GO111MODULE"] = "on"
         subprocess.run(
-            "go get sigs.k8s.io/kind@{}".format(kind_version).split(),
+            "go install sigs.k8s.io/kind@{}".format(kind_version).split(),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             env=env,
@@ -153,6 +155,7 @@ def get_worker_ip(worker_node_name: str = "kind-worker") -> str:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
+
         return internal_ip_proc.stdout.decode("utf-8").replace("'", "")
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         logging.error("Cannot retrieve node IP, reason: {}".format(e))
@@ -244,7 +247,7 @@ def expose_couchdb() -> None:
 def clone_openwhisk_chart() -> None:
     try:
         run_check_process(
-            "git clone git@github.com:apache/openwhisk-deploy-kube.git /tmp/openwhisk-deploy-kube"
+            "git clone https://github.com/apache/openwhisk-deploy-kube.git /tmp/openwhisk-deploy-kube"
         )
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         logging.error("Cannot clone openwhisk chart, reason: {}".format(e))
@@ -269,22 +272,23 @@ def deploy_openwhisk_on_k8s(namespace: str = "openwhisk") -> None:
             "--create-namespace -f "
             "/tmp/openwhisk-deploy-kube/mycluster.yaml".format(namespace)
         )
+        
+        print("Waiting for pods to be configured")
         while True:
             pods = subprocess.run(
                 "kubectl get pods -n {}".format(namespace).split(),
                 stderr=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
             )
-            check_result = subprocess.run(
-                "grep install-packages".split(),
-                input=pods.stdout,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            )
-            install_packages_status = check_result.stdout.decode("utf-8").split()[2]
-            if install_packages_status == "Completed":
-                break
-
+            
+            lines=pods.stdout.decode().split("/n")
+            for i in lines:
+                if "install-packages" in i:
+                    
+                    parts = i.split()
+                   
+                    if len(parts) > 2 and parts[2].strip() == "Completed":
+                        return
             time.sleep(1)
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         logging.error("Cannot install openwhisk, reason: {}".format(e))
@@ -306,16 +310,16 @@ def install_wsk() -> None:
         logging.info("Installing wsk...")
         home_path = os.environ["HOME"]
         wsk_path = "{}/.local/bin/wsk".format(home_path)
-        subprocess.run("go get github.com/apache/openwhisk-cli".split())
-        run_check_process("go get -u github.com/jteeuwen/go-bindata/...")
-        instalation_dir = "{}/src/github.com/apache/openwhisk-cli".format(os.environ["GOPATH"])
+        run_check_process("go install github.com/go-bindata/go-bindata/...@latest")
+        run_check_process("git clone https://github.com/apache/openwhisk-cli.git")
+        instalation_dir = "./openwhisk-cli".format(os.environ["GOPATH"])
 
         def custom_subproces(comand):
             subprocess.run(comand.split(), cwd=instalation_dir, check=True)
 
         custom_subproces("go-bindata -pkg wski18n -o wski18n/i18n_resources.go wski18n/resources")
         custom_subproces("go build -o wsk")
-        run_check_process("ln -sf {}/wsk {}".format(instalation_dir, wsk_path))
+        run_check_process("cp {}/wsk {}".format(instalation_dir, wsk_path))
         run_check_process("chmod +x {}".format(wsk_path))
         logging.info("Wsk has been installed")
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
